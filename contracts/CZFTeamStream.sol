@@ -1,4 +1,4 @@
-//SPDX-License-Identifier: Unlicense
+//SPDX-License-Identifier: GPL-3.0
 pragma solidity ^0.8.0;
 
 import "hardhat/console.sol";
@@ -6,6 +6,8 @@ import "@openzeppelin/contracts/access/Ownable.sol";
 
 interface ICZFToken {
     function mint(address to, uint256 amount) external;
+
+    function transfer(address recipient, uint256 amount) external;
 }
 
 contract CZFTeamStream is Ownable {
@@ -19,77 +21,99 @@ contract CZFTeamStream is Ownable {
     Member[] public members;
     uint256 public totalAllocPoints;
     uint256 public czfPerBlock;
+    uint256 public lastMintBlock;
 
     address public token = 0x7c1608C004F20c3520f70b924E2BfeF092dA0043;
 
-    modifier updateMemberDebts() {
-        Member storage member;
-
-        for (uint256 i = 0; i < members.length; i++) {
-            member = members[i];
-            if (member.allocPoint == 0) continue;
-
-            member.debt +=
-                (czfPerBlock *
-                    (block.number - member.lastUpdatedBlock) *
-                    member.allocPoint) /
-                totalAllocPoints;
-            member.lastUpdatedBlock = block.number;
-        }
-
-        _;
-    }
-
-    function add(address account, uint256 allocPoint)
-        external
-        onlyOwner
-        updateMemberDebts
-    {
-        Member memory member;
-
-        member.account = account;
-        member.allocPoint = allocPoint;
-        member.lastUpdatedBlock = block.number;
-
-        totalAllocPoints += allocPoint;
-
-        members.push(member);
-    }
-
-    function update(uint256 memberId, uint256 allocPoint)
+    function getPending(uint256 _memberId)
         public
-        onlyOwner
-        updateMemberDebts
+        view
+        returns (uint256 amount_)
     {
-        totalAllocPoints =
-            totalAllocPoints -
-            members[memberId].allocPoint +
-            allocPoint;
-        members[memberId].allocPoint = allocPoint;
+        Member storage member = members[_memberId];
+        return
+            ((czfPerBlock *
+                (block.number - member.lastUpdatedBlock) *
+                member.allocPoint) / totalAllocPoints) + member.debt;
     }
 
-    function remove(uint256 memberId) external onlyOwner {
-        update(memberId, 0);
-    }
-
-    function setCZFPerBlock(uint256 amount) external {
-        czfPerBlock = amount;
-    }
-
-    function claim(uint256 memberId) external {
-        Member storage member = members[memberId];
+    function claim(uint256 _memberId) external {
+        mintCZFToStream();
+        Member storage member = members[_memberId];
         uint256 amount;
 
-        amount =
-            (czfPerBlock *
-                (block.number - member.lastUpdatedBlock) *
-                member.allocPoint) /
-            totalAllocPoints;
-
-        amount += member.debt;
+        amount = getPending(_memberId);
         member.debt = 0;
         member.lastUpdatedBlock = block.number;
 
-        ICZFToken(token).mint(member.account, amount);
+        ICZFToken(token).transfer(member.account, amount);
+    }
+
+    function massUpdateMembers() public {
+        mintCZFToStream();
+        for (uint256 i = 0; i < members.length; i++) {
+            updateMember(i);
+        }
+    }
+
+    function updateMember(uint256 _memberId) public {
+        Member storage member = members[_memberId];
+        if (member.allocPoint == 0) return;
+        member.debt = getPending(_memberId);
+        member.lastUpdatedBlock = block.number;
+    }
+
+    function mintCZFToStream() public {
+        if (lastMintBlock == 0) lastMintBlock = block.number;
+        ICZFToken(token).mint(
+            address(this),
+            czfPerBlock * (block.number - lastMintBlock)
+        );
+        lastMintBlock = block.number;
+    }
+
+    function setCZFPerBlock(uint256 amount, bool _withUpdate)
+        external
+        onlyOwner
+    {
+        if (_withUpdate) massUpdateMembers();
+        czfPerBlock = amount;
+    }
+
+    function changeAddress(uint256 _memberId, address _account)
+        external
+        onlyOwner
+    {
+        members[_memberId].account = _account;
+    }
+
+    function update(
+        uint256 _memberId,
+        uint256 _allocPoint,
+        bool _withUpdate
+    ) external onlyOwner {
+        if (_withUpdate) massUpdateMembers();
+        totalAllocPoints =
+            totalAllocPoints -
+            members[_memberId].allocPoint +
+            _allocPoint;
+        members[_memberId].allocPoint = _allocPoint;
+    }
+
+    function add(
+        address _account,
+        uint256 _allocPoint,
+        bool _withUpdate
+    ) external onlyOwner {
+        if (_withUpdate) massUpdateMembers();
+        Member memory member;
+
+        member.account = _account;
+        member.allocPoint = _allocPoint;
+        member.lastUpdatedBlock = block.number;
+
+        totalAllocPoints += _allocPoint;
+
+        members.push(member);
     }
 }
