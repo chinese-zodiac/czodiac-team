@@ -25,19 +25,26 @@ contract CZFTeamStream is Ownable {
     modifier updateMemberDebts() {
         Member storage member;
 
-        for (uint256 i = 0; i < members.length; i ++) {
+        for (uint256 i = 0; i < members.length; i++) {
             member = members[i];
             if (member.allocPoint == 0) continue;
 
-            member.debt += czfPerBlock * (block.number - member.lastUpdatedBlock) * 
-                totalAllocPoints / member.allocPoint;
+            member.debt +=
+                (czfPerBlock *
+                    (block.number - member.lastUpdatedBlock) *
+                    member.allocPoint) /
+                totalAllocPoints;
             member.lastUpdatedBlock = block.number;
         }
 
         _;
     }
 
-    function add(address account, uint256 allocPoint) external onlyOwner updateMemberDebts {
+    function add(address account, uint256 allocPoint)
+        external
+        onlyOwner
+        updateMemberDebts
+    {
         Member memory member;
 
         member.account = account;
@@ -49,7 +56,15 @@ contract CZFTeamStream is Ownable {
         members.push(member);
     }
 
-    function update(uint256 memberId, uint256 allocPoint) public onlyOwner updateMemberDebts {
+    function update(uint256 memberId, uint256 allocPoint)
+        public
+        onlyOwner
+        updateMemberDebts
+    {
+        totalAllocPoints =
+            totalAllocPoints -
+            members[memberId].allocPoint +
+            allocPoint;
         members[memberId].allocPoint = allocPoint;
     }
 
@@ -65,9 +80,12 @@ contract CZFTeamStream is Ownable {
         Member storage member = members[memberId];
         uint256 amount;
 
-        amount = czfPerBlock * (block.number - member.lastUpdatedBlock) * 
-            totalAllocPoints / member.allocPoint;
-        
+        amount =
+            (czfPerBlock *
+                (block.number - member.lastUpdatedBlock) *
+                member.allocPoint) /
+            totalAllocPoints;
+
         amount += member.debt;
         member.debt = 0;
         member.lastUpdatedBlock = block.number;
